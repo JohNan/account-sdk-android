@@ -16,12 +16,13 @@ import com.schibsted.account.engine.step.StepValidateReqFields
 import com.schibsted.account.model.NoValue
 import com.schibsted.account.model.error.ClientError
 import com.schibsted.account.network.response.AgreementLinksResponse
+import com.schibsted.account.service.AccountService
 import com.schibsted.account.session.User
 
-abstract class VerificationController<in T> : Controller<T>()
+abstract class VerificationController<T>(accountService: AccountService, contract: T) : Controller<T>(accountService, contract)
         where T : Agreements.Provider, T : RequiredFields.Provider, T : Contract<*> {
 
-    protected fun requestAgreements(contract: T, user: User, agreementsLinks: AgreementLinksResponse): StepValidateAgreements? {
+    protected fun requestAgreements(user: User, agreementsLinks: AgreementLinksResponse): StepValidateAgreements? {
         val res = findOnStack<StepValidateAgreements>()
         if (res == null) {
             Agreements.request(contract, { input, callback ->
@@ -29,7 +30,7 @@ abstract class VerificationController<in T> : Controller<T>()
                     override fun onSuccess(result: NoValue) {
                         this@VerificationController.navigation.push(StepValidateAgreements(input))
                         callback.onSuccess(NoValue)
-                        evaluate(contract)
+                        evaluate()
                     }
 
                     override fun onError(error: ClientError) {
@@ -42,7 +43,7 @@ abstract class VerificationController<in T> : Controller<T>()
         return res
     }
 
-    protected fun requestRequiredFields(contract: T, user: User, missingFields: Set<String>): StepValidateReqFields? {
+    protected fun requestRequiredFields(user: User, missingFields: Set<String>): StepValidateReqFields? {
         val res = findOnStack<StepValidateReqFields>()
         if (res == null) {
             Logger.info(Logger.DEFAULT_TAG, "Missing required fields: $missingFields")
@@ -66,7 +67,7 @@ abstract class VerificationController<in T> : Controller<T>()
                         override fun onSuccess(result: NoValue) {
                             this@VerificationController.navigation.push(StepValidateReqFields(providedFieldsAndPreFill))
                             callback.onSuccess(NoValue)
-                            evaluate(contract)
+                            evaluate()
                         }
 
                         override fun onError(error: ClientError) {
@@ -76,7 +77,7 @@ abstract class VerificationController<in T> : Controller<T>()
                 })
             } else {
                 super.navigation.push(StepValidateReqFields(RequiredFields(preFilledValues)))
-                evaluate(contract)
+                evaluate()
             }
         }
 

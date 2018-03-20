@@ -4,35 +4,27 @@
 
 package com.schibsted.account.engine.controller
 
-import android.os.Parcel
-import android.os.Parcelable
 import com.schibsted.account.common.util.Logger
-import com.schibsted.account.common.util.readStack
 import com.schibsted.account.engine.integration.contract.Contract
 import com.schibsted.account.engine.step.Step
+import com.schibsted.account.service.AccountService
 import java.util.Stack
 
-abstract class Controller<in T : Contract<*>>() : Parcelable {
+abstract class Controller<out T : Contract<*>>(protected val accountService: AccountService, protected val contract: T) {
     internal val navigation: Stack<Step> = Stack()
-
-    protected constructor(parcel: Parcel) : this() {
-        val inStack = parcel.readStack<Step>(Controller::class.java.classLoader)
-        navigation.addAll(inStack)
-    }
 
     /**
      * Perform the login sequence. Additional calls to this function will re-trigger the currently
      * active task.
-     * @param contract The required contract to call to provide any additionally required information
      */
-    abstract fun evaluate(contract: T)
+    abstract fun evaluate()
 
     /**
      * Goes back one step in the controller.
      * @return True of an element was popped off the stack, false if we're already at the beginning
      */
     @JvmOverloads
-    fun back(contract: T, step: Int = 1) {
+    fun back(step: Int = 1) {
         for (i in 0..step) {
             if (navigation.size > 0) {
                 navigation.pop()
@@ -40,16 +32,10 @@ abstract class Controller<in T : Contract<*>>() : Parcelable {
                 Logger.warn(Logger.DEFAULT_TAG, { "Attempted to go back when the navigation stack was empty" })
             }
         }
-        evaluate(contract)
+        evaluate()
     }
 
-    fun start(contract: T) = evaluate(contract)
+    fun start() = evaluate()
 
     internal inline fun <reified E : Step> findOnStack(): E? = navigation.find { it is E } as E?
-
-    override fun writeToParcel(parcel: Parcel, flags: Int) {
-        parcel.writeList(navigation.toList())
-    }
-
-    override fun describeContents(): Int = 0
 }

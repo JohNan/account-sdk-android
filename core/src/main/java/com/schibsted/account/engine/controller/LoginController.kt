@@ -4,9 +4,6 @@
 
 package com.schibsted.account.engine.controller
 
-import android.os.Parcel
-import android.os.Parcelable
-import com.schibsted.account.common.util.readStack
 import com.schibsted.account.engine.input.Credentials
 import com.schibsted.account.engine.integration.CallbackProvider
 import com.schibsted.account.engine.integration.ResultCallback
@@ -19,7 +16,8 @@ import com.schibsted.account.engine.step.StepLoginIdentify
 import com.schibsted.account.model.LoginResult
 import com.schibsted.account.model.NoValue
 import com.schibsted.account.model.error.ClientError
-import com.schibsted.account.network.OIDCScope
+import com.schibsted.account.service.AccountService
+import com.schibsted.account.service.OnReadyListener
 import com.schibsted.account.session.User
 
 /**
@@ -30,16 +28,11 @@ import com.schibsted.account.session.User
  * the currently active task.
  */
 
-class LoginController @JvmOverloads constructor(private val verifyUser: Boolean,
-    @OIDCScope private val scopes: Array<String> = arrayOf(OIDCScope.SCOPE_OPENID)) : VerificationController<LoginContract>() {
+class LoginController(accountService: AccountService, contract: LoginContract) : VerificationController<LoginContract>(accountService, contract) {
 
-    constructor(parcel: Parcel) : this(parcel.readInt() != 0, parcel.createStringArray()) {
-        super.navigation.addAll(parcel.readStack(LoginController::class.java.classLoader))
-    }
-
-    override fun evaluate(contract: LoginContract) {
+    override fun evaluate() {
         val idLoginStep = this.requestCredentials(contract) { credentials, callback ->
-            LoginOperation(credentials, scopes, {
+            LoginOperation(credentials, contract.scopes, {
                 if (it.toClientError().errorType == ClientError.ErrorType.ACCOUNT_NOT_VERIFIED) {
                     contract.onAccountVerificationRequested(credentials.identifier)
                 } else {
@@ -48,34 +41,36 @@ class LoginController @JvmOverloads constructor(private val verifyUser: Boolean,
             }) { it ->
                 val user = User(it, credentials.keepLoggedIn)
 
-                if (this.verifyUser) { // Attempt the happy path and proceed straight to login
+                if (contract.verifyUser) { // Attempt the happy path and proceed straight to login
                     AgreementsCheckOperation(user, { callback.onError(it.toClientError()) }) { agreementsCheck ->
                         AgreementLinksOperation({ callback.onError(it) }, { agreementsLink ->
                             MissingFieldsOperation(user, { callback.onError(it.toClientError()) }) { missingFields ->
                                 super.navigation.push(StepLoginIdentify(credentials, user, agreementsCheck.allAccepted(), missingFields, agreementsLink))
                                 callback.onSuccess(NoValue)
-                                evaluate(contract)
+                                evaluate()
                             }
                         })
                     }
                 } else {
                     super.navigation.push(StepLoginIdentify(credentials, user, true, setOf()))
                     callback.onSuccess(NoValue)
-                    evaluate(contract)
+                    evaluate()
                 }
             }
         } ?: return
 
-        if (this.verifyUser) {
+        if (contract.verifyUser) {
             if (!idLoginStep.agreementsAccepted) {
-                super.requestAgreements(contract, idLoginStep.user, idLoginStep.agreementLinks!!) ?: return
+                super.requestAgreements(idLoginStep.user, idLoginStep.agreementLinks!!) ?: return
             }
-            super.requestRequiredFields(contract, idLoginStep.user, idLoginStep.missingFields) ?: return
-
-            contract.onFlowReady(CallbackProvider { it.onSuccess(LoginResult(idLoginStep.user, false)) })
-        } else {
-            contract.onFlowReady(CallbackProvider { it.onSuccess(LoginResult(idLoginStep.user, false)) })
+            super.requestRequiredFields(idLoginStep.user, idLoginStep.missingFields) ?: return
         }
+
+        contract.onFlowReady(CallbackProvider { flowReady ->
+            accountService.eventHook.onUserAvailable(idLoginStep.user, OnReadyListener {
+                flowReady.onSuccess(LoginResult(idLoginStep.user, false))
+            })
+        })
     }
 
     private fun requestCredentials(provider: LoginContract, onProvided: (Credentials, ResultCallback<NoValue>) -> Unit): StepLoginIdentify? {
@@ -87,19 +82,5 @@ class LoginController @JvmOverloads constructor(private val verifyUser: Boolean,
         }
 
         return res
-    }
-
-    override fun writeToParcel(parcel: Parcel, flags: Int) {
-        parcel.writeInt(if (verifyUser) 1 else 0)
-        parcel.writeStringArray(scopes)
-        super.writeToParcel(parcel, flags)
-    }
-
-    override fun describeContents(): Int = 0
-
-    companion object CREATOR : Parcelable.Creator<LoginController> {
-        override fun createFromParcel(parcel: Parcel): LoginController = LoginController(parcel)
-
-        override fun newArray(size: Int): Array<LoginController?> = arrayOfNulls(size)
     }
 }
