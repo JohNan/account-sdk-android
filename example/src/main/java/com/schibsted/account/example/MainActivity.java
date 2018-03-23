@@ -6,10 +6,7 @@ package com.schibsted.account.example;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
-import android.content.BroadcastReceiver;
-import android.content.Context;
 import android.content.Intent;
-import android.content.IntentFilter;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
@@ -19,13 +16,15 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
+
 import com.schibsted.account.engine.integration.ResultCallback;
 import com.schibsted.account.model.NoValue;
 import com.schibsted.account.model.UserId;
 import com.schibsted.account.model.error.ClientError;
 import com.schibsted.account.persistence.UserPersistence;
+import com.schibsted.account.service.AccountServiceBridge;
 import com.schibsted.account.session.User;
-import com.schibsted.account.session.event.EventManager;
+import com.schibsted.account.session.event.AccountCommunicator;
 import com.schibsted.account.ui.UiConfiguration;
 import com.schibsted.account.ui.login.BaseLoginActivity;
 import com.schibsted.account.ui.login.flow.password.PasswordActivity;
@@ -33,20 +32,23 @@ import com.schibsted.account.ui.smartlock.SmartlockImpl;
 
 import java.util.Locale;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements AccountCommunicator.AccountCommunicatorInterface {
     final static int PASSWORD_REQUEST_CODE = 1;
     private User user;
     private UserPersistence userPersistence;
-    private EventManager eventManager;
-    private IdentityReceiver identityReceiver;
     private TextView userState;
     private Button logoutButton;
+
+    private AccountServiceBridge accountServiceBridge = new AccountServiceBridge(null);
+    private AccountCommunicator accountCommunicator;
 
     @SuppressLint("SetTextI18n")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        this.accountCommunicator = new AccountCommunicator(getApplicationContext(), this);
 
         //_____________________IDENTITY SDK INIT__________________
 
@@ -65,8 +67,8 @@ public class MainActivity extends AppCompatActivity {
         userPersistence = new UserPersistence(getApplicationContext());
 
         // We want to listen to identity events
-        eventManager = new EventManager(getApplicationContext());
-        identityReceiver = new IdentityReceiver();
+        //eventManager = new EventManager(getApplicationContext());
+        //identityReceiver = new IdentityReceiver();
 
         // Start the flow
         if (savedInstanceState == null) {
@@ -102,7 +104,6 @@ public class MainActivity extends AppCompatActivity {
                 });
             }
         });
-
     }
 
     @Override
@@ -127,13 +128,20 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onStart() {
         super.onStart();
-        eventManager.registerReceiver(identityReceiver, new IntentFilter(EventManager.LOGOUT_EVENT_ID));
+        // TODO: Change with EventBridge
+        Log.e("XXX", "IN ON START!");
+        accountServiceBridge.bind(getApplicationContext());
+        accountCommunicator.onStart();
+
+//        eventManager.registerReceiver(identityReceiver, new IntentFilter(EventManager.LOGOUT_EVENT_ID));
     }
 
     @Override
     protected void onStop() {
         super.onStop();
-        eventManager.unregisterReceiver(identityReceiver);
+        accountCommunicator.onStop();
+        accountServiceBridge.unbind(getApplicationContext());
+//        eventManager.unregisterReceiver(identityReceiver);
     }
 
     @Override
@@ -163,31 +171,15 @@ public class MainActivity extends AppCompatActivity {
         return false;
     }
 
-    private class IdentityReceiver extends BroadcastReceiver {
+    @Override
+    public void onUserLogin(User user) {
+        Log.e("XXX", "User logged in");
 
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            final String action = intent.getAction();
-            if (action != null) {
-                switch (action) {
-                    //We want to know if the user was logged out by the sdk
-                    case EventManager.LOGOUT_EVENT_ID: {
-                        final UserId userId = intent.getParcelableExtra(EventManager.EXTRA_USER_ID);
-                        Log.d("IdentityReceiver", "User " + userId.getId() + "was logged out");
-                        // remove user from persistence, update view state...
-                    }
-                    //We want to know when the user token is refreshed
-                    case EventManager.REFRESH_EVENT_ID: {
-                        final UserId userId = intent.getParcelableExtra(EventManager.EXTRA_USER_ID);
-                        Log.d("IdentityReceiver", "User " + userId.getId() + "token was refreshed");
-
-                        persistUser();
-                    }
-                    default:
-                        Log.e("IdentityReceiver", "Can't handle this event");
-                }
-            }
-        }
+        accountCommunicator.sendCloseCommand();
     }
 
+    @Override
+    public void onUserLogout(UserId userId) {
+        Log.e("XXX", "User logged out");
+    }
 }

@@ -5,8 +5,10 @@
 package com.schibsted.account.ui.login
 
 import android.app.Activity
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.res.Resources
 import android.graphics.Rect
 import android.os.Bundle
@@ -16,8 +18,10 @@ import android.support.annotation.StringRes
 import android.support.annotation.VisibleForTesting
 import android.support.v4.app.DialogFragment
 import android.support.v4.content.ContextCompat
+import android.support.v4.content.LocalBroadcastManager
 import android.support.v7.app.AppCompatActivity
 import android.support.v7.widget.Toolbar
+import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
@@ -32,7 +36,10 @@ import com.schibsted.account.engine.controller.LoginController
 import com.schibsted.account.engine.input.Credentials
 import com.schibsted.account.engine.input.Identifier
 import com.schibsted.account.engine.integration.ResultCallback
+import com.schibsted.account.service.AccountService
+import com.schibsted.account.service.AccountServiceBridge
 import com.schibsted.account.session.User
+import com.schibsted.account.session.event.EventManager
 import com.schibsted.account.ui.KeyboardManager
 import com.schibsted.account.ui.R
 import com.schibsted.account.ui.UiConfiguration
@@ -107,8 +114,30 @@ abstract class BaseLoginActivity : AppCompatActivity(), KeyboardManager, Navigat
 
     internal var smartlock: SmartlockImpl? = null
 
+    private lateinit var localBroadcastManager: LocalBroadcastManager
+
+    private val accountServiceBridge = AccountServiceBridge(object : AccountServiceBridge.OnAccountServiceReadyListener {
+        override fun onAccountServiceReady(service: AccountService) {
+        }
+    })
+
+
+    private val broadcastReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == EventManager.Action.COMMAND_CLOSE.value) {
+                Log.e("XXX", "RECEIVING COMMAND TO CLOSE")
+                finish()
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        Log.e("XXX", "UI ACT INTENT: " + intent.hashCode())
+
+        localBroadcastManager = LocalBroadcastManager.getInstance(applicationContext)
+
         smartlockCredentials = intent.getParcelableExtra(KEY_SMARTLOCK_CREDENTIALS)
 
         initializeUiConfiguration()
@@ -124,6 +153,18 @@ abstract class BaseLoginActivity : AppCompatActivity(), KeyboardManager, Navigat
 
         loginContract = LoginContractImpl(this)
         initializeSmartlock()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        accountServiceBridge.bind(applicationContext)
+        localBroadcastManager.registerReceiver(this.broadcastReceiver, IntentFilter(EventManager.Action.COMMAND_CLOSE.value))
+    }
+
+    override fun onStop() {
+        super.onStop()
+        accountServiceBridge.unbind(applicationContext)
+        localBroadcastManager.unregisterReceiver(this.broadcastReceiver)
     }
 
     private fun initializeUi() {
@@ -252,6 +293,7 @@ abstract class BaseLoginActivity : AppCompatActivity(), KeyboardManager, Navigat
         super.onResume()
         setUpKeyboardListener()
         navigationController.register(this)
+
     }
 
     override fun onPause() {

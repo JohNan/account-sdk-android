@@ -4,17 +4,18 @@
 
 package com.schibsted.account.ui.navigation
 
-import android.app.Activity
 import android.support.v4.app.DialogFragment
 import android.support.v4.app.FragmentManager
+import android.util.Log
 import com.schibsted.account.common.tracking.TrackingData
 import com.schibsted.account.engine.controller.Controller
 import com.schibsted.account.engine.integration.contract.Contract
+import com.schibsted.account.service.AccountService
 import com.schibsted.account.session.User
+import com.schibsted.account.session.event.EventManager
 import com.schibsted.account.ui.R
 import com.schibsted.account.ui.UiUtil
 import com.schibsted.account.ui.login.BaseLoginActivity
-import com.schibsted.account.ui.login.BaseLoginActivity.Companion.EXTRA_USER
 import com.schibsted.account.ui.login.screen.LoginScreen
 import com.schibsted.account.ui.login.screen.identification.ui.AbstractIdentificationFragment
 import com.schibsted.account.ui.login.screen.inbox.InboxFragment
@@ -34,10 +35,9 @@ private const val DIALOG_SCREEN = "DIALOG_SCREEN"
 class Navigation(
         private var activity: BaseLoginActivity,
         private val navigationListener: NavigationListener) : FragmentManager.OnBackStackChangedListener {
-    private val fragmentManager: FragmentManager = activity.supportFragmentManager
 
-    init {
-        fragmentManager.addOnBackStackChangedListener(this)
+    private val fragmentManager: FragmentManager = activity.supportFragmentManager.also {
+        it.addOnBackStackChangedListener(this)
     }
 
     /**
@@ -101,14 +101,20 @@ class Navigation(
     }
 
     fun finishFlow(user: User) {
-        if (activity.callingActivity == null) {
+        if (activity.callingActivity == null) { // TODO: See if this works
             val intent = activity.packageManager.getLaunchIntentForPackage(activity.application.packageName)
-            intent?.putExtra(EXTRA_USER, user)
             activity.startActivity(intent)
-        } else {
-            activity.setResult(Activity.RESULT_OK, activity.intent.putExtra(EXTRA_USER, user))
-            activity.finish()
         }
+
+        Log.e("XXX", "FINISHING FLOW")
+
+        val a = AccountService.broadcastManager != null
+        Log.e("XXX", "LBM != null: $a")
+
+        val i = EventManager.createEventUserLogin(user)
+        Log.e("XXX", "i is $i")
+
+        AccountService.broadcastManager?.sendBroadcast(i)
     }
 
     fun <T : Contract<*>, C : Controller<T>> handleBackPressed(controller: C?, contract: T) {
